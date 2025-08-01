@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solar System</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden; /* Hide scrollbars */
+            background-color: #000; /* Black background for space */
+        }
+        canvas {
+            display: block;
+            width: 100vw; /* Full viewport width */
+            height: 100vh; /* Full viewport height */
+        }
+        #loading-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-family: 'Inter', sans-serif;
+            font-size: 2em;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading-overlay">Loading Solar System...</div>
+    <!-- Three.js library from CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
+    <script>
+        // Global variables for scene, camera, renderer, and objects
+        let scene, camera, renderer;
+        let sun;
+        const planets = []; // Array to hold planet objects and their orbital groups
+
+        // Mouse control variables
+        let isDragging = false;
+        let previousMouseX = 0;
+        let previousMouseY = 0;
+
+        // Function to initialize the scene
+        function init() {
+            // Create the scene
+            scene = new THREE.Scene();
+
+            // Create the camera
+            // Parameters: FOV, Aspect Ratio, Near Clipping Plane, Far Clipping Plane
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+            camera.position.set(0, 200, 700); // Adjusted initial camera position to view all planets
+
+            // Create the renderer
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Hide loading overlay once rendering starts
+            document.getElementById('loading-overlay').style.display = 'none';
+
+            // Add lights
+            // Ambient light to illuminate all objects equally
+            const ambientLight = new THREE.AmbientLight(0x333333); // Soft white light
+            scene.add(ambientLight);
+
+            // Point light for the sun (acts as the primary light source)
+            const sunLight = new THREE.PointLight(0xffffff, 2, 10000); // White light, intensity 2, distance 10000
+            scene.add(sunLight);
+
+            // Create a texture loader
+            const textureLoader = new THREE.TextureLoader();
+            textureLoader.crossOrigin = 'anonymous'; // Crucial for loading local images via a server or external URLs
+
+            // --- Set Scene Background ---
+            // Attempt to load your local space background image
+            // IMPORTANT: Ensure 'space.jpg' is in your 'textures' folder
+            // and you are serving your project with a local web server.
+            textureLoader.load(
+                './textures/Space.jpg', // Path to your local space background image
+                (texture) => {
+                    scene.background = texture;
+                },
+                undefined,
+                (error) => {
+                    console.error('Error loading local space background texture. Ensure "space.jpg" is in your "textures" folder and served by a local web server.', error);
+                    scene.background = new THREE.Color(0x111111); // Fallback to dark grey
+                }
+            );
+
+            // --- Sun ---
+            const sunGeometry = new THREE.SphereGeometry(50, 32, 32);
+            const sunMaterial = new THREE.MeshBasicMaterial({ color: 0xffff00 }); // Yellow fallback color
+            sun = new THREE.Mesh(sunGeometry, sunMaterial);
+            scene.add(sun);
+            sunLight.position.copy(sun.position); // Position the light at the sun's center
+
+            textureLoader.load(
+                './textures/sun.jpg', // Path to your local Sun texture
+                (texture) => {
+                    sunMaterial.map = texture;
+                    sunMaterial.needsUpdate = true;
+                },
+                undefined,
+                (error) => {
+                    console.error('Error loading sun texture. Using fallback color. Ensure images are served by a local web server.', error);
+                }
+            );
+
+            // Function to create a planet and its orbit
+            function createPlanet(radius, texturePath, distance, orbitalSpeed, rotationSpeed, hasRings = false, ringInnerRadius = 0, ringOuterRadius = 0) {
+                const geometry = new THREE.SphereGeometry(radius, 32, 32);
+                const material = new THREE.MeshStandardMaterial({ color: 0xaaaaaa }); // Grey fallback color
+
+                const planetMesh = new THREE.Mesh(geometry, material);
+
+                // Create an Object3D to act as the orbital pivot for the planet around the Sun
+                const planetOrbitalGroup = new THREE.Object3D();
+                planetOrbitalGroup.add(planetMesh);
+                scene.add(planetOrbitalGroup);
+                planetMesh.position.x = distance; // Set planet's initial position relative to its orbital group
+
+                // Attempt to load planet texture
+                textureLoader.load(
+                    texturePath,
+                    (texture) => {
+                        material.map = texture;
+                        material.needsUpdate = true;
+                    },
+                    undefined,
+                    (error) => {
+                        console.error(`Error loading ${texturePath} texture. Using fallback color.`, error);
+                    }
+                );
+
+                // Add rings if specified (for Saturn)
+                if (hasRings) {
+                    const ringGeometry = new THREE.RingGeometry(ringInnerRadius, ringOuterRadius, 64); // More segments for smoother rings
+                    const ringMaterial = new THREE.MeshBasicMaterial({ color: 0x887755, side: THREE.DoubleSide });
+                    const rings = new THREE.Mesh(ringGeometry, ringMaterial);
+                    rings.rotation.x = Math.PI / 2; // Rotate to be horizontal
+                    planetMesh.add(rings); // Add rings as a child of the planet
+                }
+
+                // Add orbital path
+                const points = [];
+                for (let i = 0; i <= 360; i++) {
+                    const angle = i * Math.PI / 180;
+                    points.push(new THREE.Vector3(Math.cos(angle) * distance, 0, Math.sin(angle) * distance));
+                }
+                const orbitGeometry = new THREE.BufferGeometry().setFromPoints(points);
+                const orbitMaterial = new THREE.LineBasicMaterial({ color: 0x555555 }); // Dim grey for orbits
+                const orbit = new THREE.Line(orbitGeometry, orbitMaterial);
+                scene.add(orbit);
+
+
+                planets.push({
+                    mesh: planetMesh,
+                    orbitalGroup: planetOrbitalGroup,
+                    orbitalSpeed: orbitalSpeed,
+                    rotationSpeed: rotationSpeed
+                });
+            }
+
+            // Create planets with their properties
+            // Radius, Texture Path, Distance from Sun, Orbital Speed, Rotation Speed, Has Rings, Ring Inner Radius, Ring Outer Radius
+
+            // Mercury
+            createPlanet(3, './textures/mercury.jpg', 70, 0.008, 0.005);
+            // Venus
+            createPlanet(6, './textures/venus.jpg', 100, 0.006, 0.003);
+            // Earth
+            createPlanet(8, './textures/earth.jpg', 140, 0.004, 0.007);
+            // Moon (orbits Earth, so its distance is relative to Earth, not Sun)
+            const moonRadius = 2;
+            const moonDistance = 15; // Distance from Earth
+            const moonOrbitalSpeed = 0.025; // Speed around Earth
+            const moonRotationSpeed = 0.005;
+
+            const moonGeometry = new THREE.SphereGeometry(moonRadius, 32, 32);
+            const moonMaterial = new THREE.MeshStandardMaterial({ color: 0xaaaaaa });
+            const moonMesh = new THREE.Mesh(moonGeometry, moonMaterial);
+
+            const moonOrbitalGroup = new THREE.Object3D();
+            moonOrbitalGroup.add(moonMesh);
+            // Add moon's orbital group as a child of Earth's mesh
+            // Find Earth's mesh in the planets array
+            const earthPlanet = planets.find(p => p.mesh.geometry.parameters.radius === 8 && p.orbitalGroup.position.x === 140); // Find Earth by its properties
+            if (earthPlanet) {
+                earthPlanet.mesh.add(moonOrbitalGroup);
+            } else {
+                console.warn("Earth mesh not found, Moon will not orbit correctly.");
+            }
+            moonMesh.position.x = moonDistance;
+
+            textureLoader.load(
+                './textures/moon.jpg',
+                (texture) => {
+                    moonMaterial.map = texture;
+                    moonMaterial.needsUpdate = true;
+                },
+                undefined,
+                (error) => {
+                    console.error('Error loading moon texture. Using fallback color.', error);
+                }
+            );
+
+            // Add Moon to the planets array for animation, but handle its orbit separately
+            planets.push({
+                mesh: moonMesh,
+                orbitalGroup: moonOrbitalGroup, // This group orbits Earth
+                orbitalSpeed: moonOrbitalSpeed,
+                rotationSpeed: moonRotationSpeed,
+                isMoon: true // Flag to handle moon's orbit differently in animation
+            });
+
+
+            // Mars
+            createPlanet(5, './textures/mars.jpg', 180, 0.003, 0.006);
+            // Jupiter
+            createPlanet(30, './textures/jupiter.jpg', 280, 0.0015, 0.015);
+            // Saturn
+            createPlanet(25, './textures/saturn.jpg', 380, 0.001, 0.012, true, 30, 40); // With rings
+            // Uranus
+            createPlanet(15, './textures/uranus.jpg', 450, 0.0007, 0.008);
+            // Neptune
+            createPlanet(14, './textures/neptune.jpg', 520, 0.0005, 0.007);
+
+
+            // Add event listeners for window resize and mouse interaction
+            window.addEventListener('resize', onWindowResize, false);
+            renderer.domElement.addEventListener('mousedown', onMouseDown, false);
+            renderer.domElement.addEventListener('mouseup', onMouseUp, false);
+            renderer.domElement.addEventListener('mousemove', onMouseMove, false);
+        }
+
+        // Function to handle window resizing
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Mouse event handlers for camera rotation
+        function onMouseDown(event) {
+            isDragging = true;
+            previousMouseX = event.clientX;
+            previousMouseY = event.clientY;
+        }
+
+        function onMouseUp(event) {
+            isDragging = false;
+        }
+
+        function onMouseMove(event) {
+            if (!isDragging) return;
+
+            const deltaX = event.clientX - previousMouseX;
+            const deltaY = event.clientY - previousMouseY;
+
+            // Rotate the camera around the scene's origin
+            // Increased sensitivity for camera rotation
+            const rotationSpeed = 0.008; // Increased from 0.005 to 0.008
+            camera.rotation.y += deltaX * rotationSpeed;
+            camera.rotation.x += deltaY * rotationSpeed;
+
+            // Prevent camera from flipping upside down
+            camera.rotation.x = Math.max(-Math.PI / 2, Math.min(Math.PI / 2, camera.rotation.x));
+
+            previousMouseX = event.clientX;
+            previousMouseY = event.clientY;
+        }
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate); // Request the next frame
+
+            // Rotate the sun on its axis
+            sun.rotation.y += 0.0001;
+
+            // Update planet positions and rotations
+            planets.forEach(p => {
+                // If it's the Moon, its orbital group is a child of Earth, so it orbits Earth
+                // Otherwise, it's a planet, and its orbital group orbits the Sun (scene origin)
+                p.orbitalGroup.rotation.y += p.orbitalSpeed;
+                p.mesh.rotation.y += p.rotationSpeed;
+            });
+
+            renderer.render(scene, camera); // Render the scene
+        }
+
+        // Start the application when the window loads
+        window.onload = function() {
+            init();
+            animate();
+        };
+    </script>
+</body>
+</html>
